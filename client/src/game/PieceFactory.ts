@@ -29,8 +29,10 @@ export interface PieceObject extends THREE.Group {
  * Each entry maps "<color><type>" (e.g. "wq", "bn") to a model URL.
  */
 const MODEL_SOURCES: Partial<Record<string, string>> = {
-  // "wq": "/models/white-queen.glb",
-  // "bn": "/models/black-knight.glb",
+  wp: "/models/wp.glb", wn: "/models/wn.glb", wb: "/models/wb.glb",
+  wr: "/models/wr.glb", wq: "/models/wq.glb", wk: "/models/wk.glb",
+  bp: "/models/bp.glb", bn: "/models/bn.glb", bb: "/models/bb.glb",
+  br: "/models/br.glb", bq: "/models/bq.glb", bk: "/models/bk.glb",
 };
 
 const loader = new GLTFLoader();
@@ -229,28 +231,45 @@ function applyMeta(group: PieceObject, type: PieceType, color: PieceColor): Piec
   return group;
 }
 
+/** Load (once) and cache a normalised model. Returns the shared original. */
 async function loadModel(type: PieceType, color: PieceColor): Promise<THREE.Object3D | null> {
   const key = `${color}${type}`;
   const url = MODEL_SOURCES[key];
   if (!url) return null;
-  if (modelCache.has(key)) return modelCache.get(key)!.clone();
+  if (modelCache.has(key)) return modelCache.get(key)!;
   try {
     const gltf = await loader.loadAsync(url);
     const root = gltf.scene;
-    // Normalise to ~1.4 units tall, base on the ground.
+    // Normalise so the piece stands on the ground at the right height.
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     box.getSize(size);
-    const scale = (HEIGHTS[type] * 1.0) / (size.y || 1);
-    root.scale.setScalar(scale);
-    const box2 = new THREE.Box3().setFromObject(root);
-    root.position.y -= box2.min.y;
+    root.scale.setScalar(HEIGHTS[type] / (size.y || 1));
+    const grounded = new THREE.Box3().setFromObject(root);
+    root.position.y -= grounded.min.y;
+    root.updateMatrixWorld(true);
     modelCache.set(key, root);
-    return root.clone();
+    return root;
   } catch (err) {
     console.warn(`Failed to load model for ${key}, using procedural piece.`, err);
     return null;
   }
+}
+
+/** Clone an object AND its geometries/materials so each piece is independent
+ *  (plain Object3D.clone() shares those references, which would corrupt
+ *  sibling pieces when one is disposed or made to glow during a battle). */
+function deepInstance(source: THREE.Object3D): THREE.Object3D {
+  const copy = source.clone(true);
+  copy.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.geometry = o.geometry.clone();
+      o.material = Array.isArray(o.material)
+        ? o.material.map((m) => m.clone())
+        : o.material.clone();
+    }
+  });
+  return copy;
 }
 
 /**
@@ -261,7 +280,7 @@ export async function createPiece(type: PieceType, color: PieceColor): Promise<P
   const model = await loadModel(type, color);
   if (model) {
     const group = new THREE.Group() as PieceObject;
-    group.add(model);
+    group.add(deepInstance(model));
     return applyMeta(group, type, color);
   }
   return buildProcedural(type, color);
