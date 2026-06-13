@@ -28,11 +28,13 @@ export interface PieceObject extends THREE.Group {
  *
  * Each entry maps "<color><type>" (e.g. "wq", "bn") to a model URL.
  */
+// Paths are relative to the app base so the pack works under any deploy
+// sub-path (e.g. GitHub Pages at /BattleChess/). Resolved via BASE_URL below.
 const MODEL_SOURCES: Partial<Record<string, string>> = {
-  wp: "/models/wp.glb", wn: "/models/wn.glb", wb: "/models/wb.glb",
-  wr: "/models/wr.glb", wq: "/models/wq.glb", wk: "/models/wk.glb",
-  bp: "/models/bp.glb", bn: "/models/bn.glb", bb: "/models/bb.glb",
-  br: "/models/br.glb", bq: "/models/bq.glb", bk: "/models/bk.glb",
+  wp: "models/wp.glb", wn: "models/wn.glb", wb: "models/wb.glb",
+  wr: "models/wr.glb", wq: "models/wq.glb", wk: "models/wk.glb",
+  bp: "models/bp.glb", bn: "models/bn.glb", bb: "models/bb.glb",
+  br: "models/br.glb", bq: "models/bq.glb", bk: "models/bk.glb",
 };
 
 const loader = new GLTFLoader();
@@ -234,9 +236,10 @@ function applyMeta(group: PieceObject, type: PieceType, color: PieceColor): Piec
 /** Load (once) and cache a normalised model. Returns the shared original. */
 async function loadModel(type: PieceType, color: PieceColor): Promise<THREE.Object3D | null> {
   const key = `${color}${type}`;
-  const url = MODEL_SOURCES[key];
-  if (!url) return null;
+  const rel = MODEL_SOURCES[key];
+  if (!rel) return null;
   if (modelCache.has(key)) return modelCache.get(key)!;
+  const url = import.meta.env.BASE_URL + rel;
   try {
     const gltf = await loader.loadAsync(url);
     const root = gltf.scene;

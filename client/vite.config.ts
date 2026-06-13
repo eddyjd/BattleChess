@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 // Allow importing the shared protocol that lives outside the client root,
 // and proxy WebSocket traffic to the game server during development.
 export default defineConfig({
+  // Served at "/" locally; GitHub Pages builds set VITE_BASE="/BattleChess/".
+  base: process.env.VITE_BASE ?? "/",
   server: {
     port: 5173,
     fs: {

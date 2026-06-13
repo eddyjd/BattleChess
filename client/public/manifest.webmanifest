@@ -2,14 +2,15 @@
   "name": "BattleChess — 3D Combat Chess",
   "short_name": "BattleChess",
   "description": "3D online/AI chess where captured pieces come to life and battle.",
-  "start_url": "/",
+  "start_url": ".",
+  "scope": ".",
   "display": "fullscreen",
   "orientation": "any",
   "background_color": "#0b0d1a",
   "theme_color": "#0b0d1a",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
