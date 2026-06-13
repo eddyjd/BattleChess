@@ -37,6 +37,10 @@ canvas {
   touch-action: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
 /* ---------------- Overlays / menus ---------------- */
 .overlay {
   position: fixed;

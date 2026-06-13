@@ -23,6 +23,8 @@ export class HUD {
   private blackName!: HTMLElement;
   private toastEl!: HTMLElement;
   private overlay!: HTMLElement;
+  private loadingEl!: HTMLElement;
+  private loadingLabel!: HTMLElement;
   private body: HTMLElement;
   private callbacks: HUDCallbacks;
 
@@ -36,6 +38,11 @@ export class HUD {
     mount.append(this.toastEl);
     this.overlay = el("div", { class: "overlay hidden" });
     mount.append(this.overlay);
+    this.loadingEl = el("div", { class: "loading hidden" }, [
+      el("div", { class: "spinner" }),
+      (this.loadingLabel = el("div", {}, ["Summoning the armies…"])),
+    ]);
+    mount.append(this.loadingEl);
     // Cinematic bars
     mount.append(el("div", { class: "cinebar top" }));
     mount.append(el("div", { class: "cinebar bottom" }));
@@ -87,6 +94,17 @@ export class HUD {
 
   setCinematic(on: boolean): void {
     this.body.classList.toggle("cinebars-on", on);
+  }
+
+  showLoading(label = "Summoning the armies…"): void {
+    this.loadingLabel.textContent = label;
+    this.loadingEl.classList.remove("hidden");
+  }
+  setLoading(done: number, total: number): void {
+    this.loadingLabel.textContent = `Summoning the armies… ${done}/${total}`;
+  }
+  hideLoading(): void {
+    this.loadingEl.classList.add("hidden");
   }
 
   private toastTimer: number | null = null;

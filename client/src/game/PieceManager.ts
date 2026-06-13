@@ -1,20 +1,28 @@
 import * as THREE from "three";
 import type { Chess } from "chess.js";
-import { createPiece, orientPiece, type PieceColor, type PieceObject, type PieceType } from "./PieceFactory";
+import {
+  createPiece,
+  orientPiece,
+  playLoop,
+  playOnce,
+  updateMixer,
+  type PieceColor,
+  type PieceObject,
+  type PieceType,
+} from "./Characters";
 import { squareToWorld } from "./coords";
 import type { Stage } from "../scene/Stage";
 import { Easings } from "../util/tween";
 
 /**
- * Owns the 3D piece meshes and keeps them in sync with the logical board.
- * Tracks one mesh per occupied square and provides the slide / hop / spawn
- * / remove animations the game controller drives.
+ * Owns the animated character pieces and keeps them in sync with the logical
+ * board: spawning, walking on a move, capturing, promoting. Each piece runs
+ * its own animation mixer, advanced every frame.
  */
 export class PieceManager {
   readonly group = new THREE.Group();
   private bySquare = new Map<string, PieceObject>();
-  private selected: PieceObject | null = null;
-  private hoverPhase = 0;
+  private all = new Set<PieceObject>();
 
   constructor(private stage: Stage) {
     stage.scene.add(this.group);
@@ -24,7 +32,6 @@ export class PieceManager {
     return this.bySquare.get(square);
   }
 
-  /** Rebuild every piece from a chess.js position (used on new game / sync). */
   async setupFrom(chess: Chess): Promise<void> {
     this.clear();
     const board = chess.board();
@@ -47,36 +54,43 @@ export class PieceManager {
     orientPiece(piece);
     this.group.add(piece);
     this.bySquare.set(square, piece);
+    this.all.add(piece);
   }
 
-  private placeInstant(piece: PieceObject, square: string): void {
+  private register(piece: PieceObject, square: string): void {
     piece.position.copy(squareToWorld(square));
     piece.userData.square = square;
     this.bySquare.set(square, piece);
   }
 
-  /** Slide a piece between squares (knights hop in an arc). */
+  /** Walk a piece between squares with the proper locomotion animation. */
   async move(from: string, to: string): Promise<void> {
     const piece = this.bySquare.get(from);
     if (!piece) return;
     this.bySquare.delete(from);
     const start = piece.position.clone();
     const end = squareToWorld(to);
-    const isKnight = piece.userData.type === "n";
+    const dist = start.distanceTo(end);
+    const dir = end.clone().sub(start).setY(0).normalize();
+    const facing = Math.atan2(dir.x, dir.z);
+    piece.rotation.y = facing;
+
+    const running = dist > 3.2;
+    playLoop(piece, running ? "Running_A" : "Walking_A", 0.15);
     await this.stage.tweens.to({
-      duration: isKnight ? 0.42 : 0.34,
-      easing: isKnight ? Easings.quadInOut : Easings.cubicInOut,
+      duration: Math.min(0.28 + dist * 0.12, 0.8),
+      easing: Easings.quadInOut,
       onUpdate: (t) => {
         piece.position.lerpVectors(start, end, t);
-        piece.position.y = start.y + Math.sin(t * Math.PI) * (isKnight ? 0.9 : 0.12);
       },
     });
     piece.position.copy(end);
     piece.userData.square = to;
     this.bySquare.set(to, piece);
+    orientPiece(piece);
+    playLoop(piece, "Idle", 0.2);
   }
 
-  /** Remove (and dispose) a piece by square. */
   remove(square: string): void {
     const piece = this.bySquare.get(square);
     if (!piece) return;
@@ -84,18 +98,22 @@ export class PieceManager {
     this.disposePiece(piece);
   }
 
-  /** Detach a piece's mesh from the board map without disposing it
-   *  (used so the battle director can animate it, then we dispose). */
   detach(square: string): PieceObject | undefined {
     const piece = this.bySquare.get(square);
     if (piece) this.bySquare.delete(square);
     return piece;
   }
 
+  place(piece: PieceObject, square: string): void {
+    this.register(piece, square);
+  }
+
   disposePiece(piece: PieceObject): void {
     this.group.remove(piece);
+    this.all.delete(piece);
+    piece.userData.mixer.stopAllAction();
     piece.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
+      if (o instanceof THREE.Mesh || o instanceof THREE.SkinnedMesh) {
         o.geometry.dispose();
         const m = o.material;
         if (Array.isArray(m)) m.forEach((x) => x.dispose());
@@ -104,7 +122,6 @@ export class PieceManager {
     });
   }
 
-  /** Promote: swap a pawn mesh for the promoted piece on the same square. */
   async promote(square: string, type: PieceType, color: PieceColor): Promise<void> {
     const existing = this.bySquare.get(square);
     if (existing) {
@@ -114,49 +131,37 @@ export class PieceManager {
     await this.spawn(type, color, square);
   }
 
-  /** Instantly position + register a (possibly detached) piece on a square. */
-  place(piece: PieceObject, square: string): void {
-    this.placeInstant(piece, square);
-  }
-
-  /** Manually relocate a mesh's logical square (e.g. castled rook). */
   relocate(from: string, to: string): void {
     const piece = this.bySquare.get(from);
     if (!piece) return;
     this.bySquare.delete(from);
-    this.placeInstant(piece, to);
+    this.register(piece, to);
+    orientPiece(piece);
   }
 
-  setSelected(square: string | null): void {
-    if (this.selected) {
-      this.selected.position.y = squareToWorld(this.selected.userData.square).y;
-    }
-    this.selected = square ? this.bySquare.get(square) ?? null : null;
+  // Selection cue is shown on the board tile; the character keeps idling.
+  setSelected(_square: string | null): void {}
+
+  /** Advance every character's animation. `dt` is time-scaled for slow-mo. */
+  update(dt: number): void {
+    for (const piece of this.all) updateMixer(piece, dt);
   }
 
-  /** Gentle hover bob on the selected piece. */
-  update(_dt: number): void {
-    this.hoverPhase += _dt * 5;
-    if (this.selected) {
-      const base = squareToWorld(this.selected.userData.square).y;
-      this.selected.position.y = base + 0.18 + Math.sin(this.hoverPhase) * 0.06;
-      this.selected.rotation.y += _dt * 0.6 * (this.selected.userData.type === "n" ? 0 : 1);
-    }
+  raycastPieces(_raycaster: THREE.Raycaster): PieceObject | null {
+    return null; // selection is done via board tiles
   }
 
-  raycastPieces(raycaster: THREE.Raycaster): PieceObject | null {
-    const hits = raycaster.intersectObjects(this.group.children, true);
-    if (hits.length === 0) return null;
-    let obj: THREE.Object3D | null = hits[0].object;
-    while (obj && !(obj.userData && "type" in obj.userData && "color" in obj.userData)) {
-      obj = obj.parent;
-    }
-    return (obj as PieceObject) ?? null;
+  /** Helpers for the battle director. */
+  playOnce(piece: PieceObject, clip: string, fade = 0.1): number {
+    return playOnce(piece, clip, fade);
+  }
+  playLoop(piece: PieceObject, clip: string, fade = 0.2): void {
+    playLoop(piece, clip, fade);
   }
 
   clear(): void {
-    for (const piece of this.bySquare.values()) this.disposePiece(piece);
+    for (const piece of this.all) this.disposePiece(piece);
     this.bySquare.clear();
-    this.selected = null;
+    this.all.clear();
   }
 }

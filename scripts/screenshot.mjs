@@ -33,28 +33,24 @@ await page.evaluate(() => {
   const b = [...document.querySelectorAll("button")].find((x) => /Local/i.test(x.textContent || ""));
   b?.click();
 });
-await sleep(2500); // pieces (GLB) load
+await sleep(8000); // characters (GLB) load + spawn
 await shot(page, "board");
 
 // Drive moves to a capture to inspect the battle cinematic.
 const move = async (f, t) => {
-  await page.evaluate(async (f, t) => {
-    await window.__bc.controller.testMove(f, t);
-  }, f, t);
+  await page.evaluate((f, t) => window.__bc.controller.testMove(f, t), f, t);
 };
 await move("e2", "e4");
-await sleep(700);
+await sleep(400);
 await move("d7", "d5");
-await sleep(700);
-// e4 x d5 -> capture battle
+await sleep(400);
+// e4 x d5 -> capture battle (fire and forget, screenshot through it)
 await page.evaluate((f, t) => { window.__bc.controller.testMove(f, t); }, "e4", "d5");
-await sleep(700);
-await shot(page, "battle1");
-await sleep(700);
-await shot(page, "battle2");
-await sleep(900);
-await shot(page, "battle3");
-await sleep(1200);
+for (let i = 1; i <= 6; i++) {
+  await sleep(1100);
+  await shot(page, `battle${i}`);
+}
+await sleep(1500);
 await shot(page, "after");
 
 await browser.close();

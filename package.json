@@ -16,7 +16,6 @@
     "build:client": "npm run build --workspace client",
     "build:server": "npm run build --workspace server",
     "start": "node server/dist/server/src/index.js",
-    "models": "node scripts/export-models.mjs",
     "typecheck": "npm run typecheck --workspace client && npm run typecheck --workspace server"
   },
   "devDependencies": {

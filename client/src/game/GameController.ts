@@ -6,7 +6,7 @@ import { PieceManager } from "./PieceManager";
 import { BattleDirector } from "./effects/BattleDirector";
 import { AIController, type Difficulty } from "../ai/AIController";
 import type { NetClient } from "../net/NetClient";
-import type { PieceColor, PieceType } from "./PieceFactory";
+import type { PieceColor, PieceType } from "./Characters";
 import type { Color, GameOverReason, ServerMessage } from "../../../shared/protocol";
 
 export type Mode = "local" | "ai" | "online";
@@ -86,9 +86,10 @@ export class GameController {
     this.pieces = new PieceManager(stage);
     this.battle = new BattleDirector(stage, hooks.setCinematic);
 
-    stage.onFrame((dt) => {
+    stage.onFrame((dt, scaledDt) => {
       this.board.update(performance.now() / 1000);
-      this.pieces.update(dt);
+      this.pieces.update(scaledDt); // scaled so animations slow during battles
+      void dt;
     });
 
     const dom = stage.renderer.domElement;

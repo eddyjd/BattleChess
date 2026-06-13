@@ -3,6 +3,7 @@ import { Stage } from "./scene/Stage";
 import { GameController, type GameHooks, type NewGameConfig } from "./game/GameController";
 import { HUD } from "./ui/HUD";
 import { Menu } from "./ui/Menu";
+import { preloadAll } from "./game/Characters";
 
 /**
  * Application shell: builds the 3D stage, the game controller and the UI,
@@ -42,6 +43,9 @@ class App {
     this.lastConfig = config;
     this.menu.hide();
     this.hud.dismissOverlay();
+    this.hud.showLoading();
+    await preloadAll((done, total) => this.hud.setLoading(done, total));
+    this.hud.hideLoading();
     this.hud.show();
     await this.game.newGame(config);
   }
