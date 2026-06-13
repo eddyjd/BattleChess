@@ -329,6 +329,12 @@ input.name {
   height: 9vh;
 }
 
+/* Clear the UI out of the way while a battle cinematic plays. */
+.cinebars-on .hud {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
 .loading {
   position: fixed;
   inset: 0;

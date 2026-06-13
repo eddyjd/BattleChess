@@ -60,7 +60,15 @@ class App {
     this.hud.hide();
     this.menu.show();
   }
+
+  /** Test/debug hook used by the screenshot harness (and handy in console). */
+  get controller(): GameController {
+    return this.game;
+  }
 }
 
 const mount = document.getElementById("app");
-if (mount) new App(mount);
+if (mount) {
+  const app = new App(mount);
+  (window as unknown as { __bc: App }).__bc = app;
+}

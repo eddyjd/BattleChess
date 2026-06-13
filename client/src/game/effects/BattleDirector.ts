@@ -40,6 +40,8 @@ export class BattleDirector {
   private cineBase = new THREE.Vector3();
   private focus = new THREE.Vector3();
   private driving = false;
+  private gear: THREE.Object3D[] = [];
+  private attackerWeapon: THREE.Object3D | null = null;
 
   constructor(
     private stage: Stage,
@@ -78,8 +80,8 @@ export class BattleDirector {
 
     const attackerStart = attacker.position.clone();
     const defenderPos = defender.position.clone();
-    const mid = attackerStart.clone().lerp(defenderPos, 0.5);
-    this.focus.copy(mid).add(new THREE.Vector3(0, 0.55, 0));
+    // Frame the kill: aim where the action ends (on the defender).
+    this.focus.copy(defenderPos).add(new THREE.Vector3(0, 0.55, 0));
 
     const attackDir = defenderPos.clone().sub(attackerStart).setY(0).normalize();
     const side = new THREE.Vector3().crossVectors(attackDir, new THREE.Vector3(0, 1, 0)).normalize();
@@ -89,27 +91,32 @@ export class BattleDirector {
     // --- Cinematic camera (driven manually) ---
     const prevPos = stage.camera.position.clone();
     const prevTarget = stage.controls.target.clone();
+    const prevFov = stage.camera.fov;
     stage.cameraLocked = true;
     this.driving = true;
     this.setCinematic(true);
 
+    // A tight 3/4 close-up on the duel.
     const cineTarget = this.focus
       .clone()
-      .add(side.clone().multiplyScalar(2.6))
-      .add(attackDir.clone().multiplyScalar(-1.2))
-      .add(new THREE.Vector3(0, 1.7, 0));
+      .add(side.clone().multiplyScalar(1.9))
+      .add(attackDir.clone().multiplyScalar(-1.4))
+      .add(new THREE.Vector3(0, 1.25, 0));
     this.cineBase.copy(prevPos);
 
     const faceAngle = Math.atan2(attackDir.x, attackDir.z);
 
-    // 1) Dive in + wind up.
+    // 1) Dive in + wind up, zooming the lens for drama.
     stage.timeScale = 0.8;
     await tw.to({
       duration: 0.42,
       easing: Easings.cubicInOut,
       onUpdate: (t) => {
         this.cineBase.lerpVectors(prevPos, cineTarget, t);
+        stage.camera.fov = THREE.MathUtils.lerp(prevFov, 40, t);
+        stage.camera.updateProjectionMatrix();
         attacker.rotation.y = THREE.MathUtils.lerp(attacker.rotation.y, faceAngle, t * 0.6);
+        defender.rotation.y = THREE.MathUtils.lerp(defender.rotation.y, faceAngle + Math.PI, t * 0.6);
         attacker.position.copy(attackerStart).addScaledVector(attackDir, -0.18 * t);
         attacker.position.y = attackerStart.y + Math.sin(t * Math.PI) * 0.18;
         this.setGlow(attacker, t * 0.9);
@@ -117,12 +124,17 @@ export class BattleDirector {
       },
     });
 
+    // Bring the warriors to life: glowing eyes, and a blade for the attacker.
+    this.equip(defender, 0xff3b30, false);
+    this.attackerWeapon = this.equip(attacker, 0x76f0ff, true);
+
     // 2) Piece-specific battle routine.
     await this.choreograph(attacker.userData.type, ctx);
 
-    // 3) Finisher — defender is destroyed.
+    // 3) Finisher — the killing blow is struck, defender is destroyed.
     const power = FINISH_POWER[attacker.userData.type];
     stage.timeScale = 0.26;
+    this.swingWeapon();
     this.impact(defenderPos, defenderPos, power, attacker.userData.type);
     this.fx.burst(defenderPos.clone().add(new THREE.Vector3(0, defender.userData.height * 0.5, 0)), {
       count: Math.round(50 * power),
@@ -153,8 +165,9 @@ export class BattleDirector {
     attacker.rotation.set(0, faceAngle, 0);
     attacker.scale.setScalar(1);
     this.setGlow(attacker, 0);
+    this.unequip();
 
-    // 5) Restore the orbit camera.
+    // 5) Restore the orbit camera + lens.
     stage.timeScale = 1;
     await tw.to({
       duration: 0.4,
@@ -162,14 +175,94 @@ export class BattleDirector {
       onUpdate: (t) => {
         this.cineBase.lerpVectors(cineTarget, prevPos, t);
         this.focus.lerpVectors(this.focus, prevTarget, t * 0.5);
+        stage.camera.fov = THREE.MathUtils.lerp(40, prevFov, t);
+        stage.camera.updateProjectionMatrix();
       },
     });
 
     this.driving = false;
     stage.camera.position.copy(prevPos);
+    stage.camera.fov = prevFov;
+    stage.camera.updateProjectionMatrix();
     stage.controls.target.copy(prevTarget);
     stage.cameraLocked = false;
     this.setCinematic(false);
+  }
+
+  /* ------------------- bringing pieces to life ---------------------- */
+
+  /** Attach glowing eyes (and optionally a blade) so the piece reads as a
+   *  living combatant. Returns the weapon group if one was added. */
+  private equip(piece: PieceObject, eyeColor: number, weapon: boolean): THREE.Object3D | null {
+    const h = piece.userData.height;
+    const holder = new THREE.Group();
+    const eyeMat = new THREE.MeshStandardMaterial({
+      color: 0x110000,
+      emissive: new THREE.Color(eyeColor),
+      emissiveIntensity: 5,
+    });
+    const eyeGeo = new THREE.SphereGeometry(0.06, 12, 10);
+    for (const sx of [-0.1, 0.1]) {
+      const eye = new THREE.Mesh(eyeGeo, eyeMat);
+      eye.position.set(sx, h * 0.72, 0.18);
+      holder.add(eye);
+    }
+    let weaponGroup: THREE.Object3D | null = null;
+    if (weapon) {
+      weaponGroup = this.makeWeapon();
+      weaponGroup.position.set(0.26, h * 0.4, 0.12);
+      holder.add(weaponGroup);
+    }
+    piece.add(holder);
+    this.gear.push(holder);
+    return weaponGroup;
+  }
+
+  private makeWeapon(): THREE.Object3D {
+    const g = new THREE.Group();
+    const steel = new THREE.MeshStandardMaterial({
+      color: 0xd8e0ff,
+      metalness: 1,
+      roughness: 0.2,
+      emissive: new THREE.Color(0x6ea8ff),
+      emissiveIntensity: 1.5,
+    });
+    const gold = new THREE.MeshStandardMaterial({ color: 0xe7b23c, metalness: 1, roughness: 0.3 });
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.7, 0.02), steel);
+    blade.position.y = 0.45;
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.06, 0.06), gold);
+    guard.position.y = 0.12;
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.18, 8), gold);
+    g.add(blade, guard, grip);
+    g.rotation.x = -0.6;
+    return g;
+  }
+
+  /** Fast overhead swing of the attacker's blade on the killing blow. */
+  private swingWeapon(): void {
+    const w = this.attackerWeapon;
+    if (!w) return;
+    this.stage.tweens.to({
+      duration: 0.18,
+      easing: Easings.quadIn,
+      onUpdate: (t) => {
+        w.rotation.x = -1.4 + t * 2.2;
+      },
+    });
+  }
+
+  private unequip(): void {
+    for (const holder of this.gear) {
+      holder.parent?.remove(holder);
+      holder.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          o.geometry.dispose();
+          (o.material as THREE.Material).dispose();
+        }
+      });
+    }
+    this.gear = [];
+    this.attackerWeapon = null;
   }
 
   /* ----------------- per-piece battle choreographies ----------------- */

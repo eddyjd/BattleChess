@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { SQUARE, BOARD_HALF, fileRankToSquare, isLightSquare, squareToWorld } from "./coords";
 
-const LIGHT_COLOR = new THREE.Color(0xe8d9b5);
-const DARK_COLOR = new THREE.Color(0x4a5170);
+const LIGHT_COLOR = new THREE.Color(0xcdb98f); // aged ivory / sandstone
+const DARK_COLOR = new THREE.Color(0x40301f); // dark walnut
 
 interface SquareMesh extends THREE.Mesh {
   userData: { square: string; base: THREE.Color };
@@ -33,8 +33,8 @@ export class Board3D {
         const base = (light ? LIGHT_COLOR : DARK_COLOR).clone();
         const mat = new THREE.MeshStandardMaterial({
           color: base,
-          roughness: 0.6,
-          metalness: 0.15,
+          roughness: light ? 0.55 : 0.45,
+          metalness: 0.05,
           emissive: new THREE.Color(0x000000),
           emissiveIntensity: 1,
         });
@@ -51,30 +51,46 @@ export class Board3D {
   }
 
   private buildFrame(): void {
-    const outer = BOARD_HALF + 0.45;
-    const frameMat = new THREE.MeshStandardMaterial({
-      color: 0x2a2030,
-      roughness: 0.5,
-      metalness: 0.6,
+    // Base slab beneath the tiles, extending out to form the board's edge.
+    // Its top sits just below the tile tops so it never covers the squares.
+    const outer = BOARD_HALF + 0.6;
+    const baseMat = new THREE.MeshStandardMaterial({
+      color: 0x2c2017,
+      roughness: 0.55,
+      metalness: 0.2,
     });
-    const ringGeo = new THREE.BoxGeometry(outer * 2, 0.34, outer * 2);
-    const ring = new THREE.Mesh(ringGeo, frameMat);
-    ring.position.y = -0.18;
-    ring.receiveShadow = true;
-    ring.castShadow = true;
-    this.group.add(ring);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(outer * 2, 0.6, outer * 2), baseMat);
+    base.position.y = -0.36; // top at -0.06, tiles span -0.30..0.00
+    base.receiveShadow = true;
+    base.castShadow = true;
+    this.group.add(base);
 
-    // Glowing trim sitting just inside the frame.
-    const trimMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1d36,
-      emissive: new THREE.Color(0x6ea8ff),
-      emissiveIntensity: 0.4,
+    // Decorative gold border rail around the playing area (outside the
+    // squares, so it frames them without overlapping). Picks up the bloom.
+    const railMat = new THREE.MeshStandardMaterial({
+      color: 0xc79a3a,
       roughness: 0.3,
-      metalness: 0.8,
+      metalness: 1.0,
+      emissive: new THREE.Color(0x3a2600),
+      emissiveIntensity: 1,
     });
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(BOARD_HALF * 2 + 0.2, 0.36, BOARD_HALF * 2 + 0.2), trimMat);
-    trim.position.y = -0.17;
-    this.group.add(trim);
+    const edge = BOARD_HALF + 0.18;
+    const len = BOARD_HALF * 2 + 0.72;
+    const th = 0.34;
+    const h = 0.14;
+    const bars: [number, number, number, number][] = [
+      [0, edge, len, th], // far (+? -z)
+      [0, -edge, len, th],
+      [edge, 0, th, len],
+      [-edge, 0, th, len],
+    ];
+    for (const [x, z, sx, sz] of bars) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, h, sz), railMat);
+      bar.position.set(x, 0.0, z);
+      bar.castShadow = true;
+      bar.receiveShadow = true;
+      this.group.add(bar);
+    }
   }
 
   getPickTargets(): THREE.Object3D[] {

@@ -468,6 +468,16 @@ export class GameController {
     if (this.mode === "online") this.net?.send({ t: "rematch" });
   }
 
+  /** Drive a move programmatically (screenshot harness / console testing). */
+  async testMove(from: string, to: string): Promise<void> {
+    const sample = (this.chess.moves({ square: from as never, verbose: true }) as Move[]).find(
+      (m) => m.to === to,
+    );
+    if (!sample) return;
+    const detail = this.chess.move({ from, to, promotion: "q" });
+    if (detail) await this.applyDetailedMove(detail);
+  }
+
   dispose(): void {
     this.turnToken++;
     this.teardownNet();

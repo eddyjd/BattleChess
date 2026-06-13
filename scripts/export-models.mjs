@@ -48,14 +48,26 @@ const PROFILES = {
   nBase: [[0,0],[0.49,0],[0.49,0.06],[0.39,0.11],[0.30,0.16],[0.27,0.24]],
 };
 
+// Bodies are polished marble (non-metallic, glossy clearcoat); regalia
+// (crowns, crosses, finials, battlements) are gold for a regal medieval look.
 function material(color) {
   return new THREE.MeshPhysicalMaterial({
-    color: color === "w" ? 0xf4eede : 0x252834,
-    roughness: color === "w" ? 0.3 : 0.32,
-    metalness: color === "w" ? 0.35 : 0.65,
-    clearcoat: 0.6,
-    clearcoatRoughness: 0.25,
+    color: color === "w" ? 0xede6d3 : 0x1b1d26,
+    roughness: color === "w" ? 0.22 : 0.18,
+    metalness: 0.0,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.18,
     emissive: new THREE.Color(0x000000),
+  });
+}
+
+function goldMaterial() {
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xe7b23c,
+    roughness: 0.24,
+    metalness: 1.0,
+    clearcoat: 0.5,
+    emissive: new THREE.Color(0x2a1c00),
   });
 }
 
@@ -100,8 +112,7 @@ function knightHead(mat) {
 
 function buildPiece(type, color) {
   const mat = material(color);
-  const accent = material(color);
-  accent.metalness = Math.min(1, mat.metalness + 0.2);
+  const accent = goldMaterial();
   const g = new THREE.Group();
   g.add(baseRing(accent));
   switch (type) {
@@ -117,7 +128,7 @@ function buildPiece(type, color) {
       break;
     }
     case "b": g.add(lathe(PROFILES.b, mat), ball(0.09, 1.05, accent)); break;
-    case "n": g.add(lathe(PROFILES.nBase, mat), knightHead(accent)); break;
+    case "n": g.add(lathe(PROFILES.nBase, mat), knightHead(mat)); break;
     case "q": {
       g.add(lathe(PROFILES.q, mat));
       for (let i = 0; i < 8; i++) {

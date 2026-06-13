@@ -1,5 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { TweenManager } from "../util/tween";
 
 /**
@@ -23,6 +28,8 @@ export class Stage {
   private clock = new THREE.Clock();
   private frameCbs = new Set<(dt: number, scaledDt: number) => void>();
   private keyLight!: THREE.DirectionalLight;
+  private composer!: EffectComposer;
+  private bloom!: UnrealBloomPass;
 
   constructor(mount: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -34,7 +41,7 @@ export class Stage {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.85;
     mount.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -57,19 +64,42 @@ export class Stage {
     this.controls.maxPolarAngle = Math.PI / 2.05; // don't go under the board
     this.controls.target.set(0, 0.4, 0);
 
+    // Image-based lighting: gives metals/marble real reflections instead of
+    // the flat grey look you get from direct lights alone.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.35;
+
     this.setupLighting();
     this.setupEnvironment();
+    this.setupComposer();
 
     window.addEventListener("resize", this.onResize);
     this.clock.start();
     this.renderer.setAnimationLoop(this.loop);
   }
 
+  private setupComposer(): void {
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // Soft glow on bright things (gold rail, battle sparks, emissive flashes).
+    this.bloom = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.5, // strength
+      0.5, // radius
+      0.9, // threshold — only genuinely bright pixels bloom
+    );
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+  }
+
   private setupLighting(): void {
-    const ambient = new THREE.HemisphereLight(0x9bb0ff, 0x1a1530, 0.55);
+    const ambient = new THREE.HemisphereLight(0x9bb0ff, 0x1a1530, 0.25);
     this.scene.add(ambient);
 
-    const key = new THREE.DirectionalLight(0xfff3d6, 2.1);
+    const key = new THREE.DirectionalLight(0xfff3d6, 1.5);
     key.position.set(8, 16, 8);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
@@ -144,7 +174,7 @@ export class Stage {
 
   /** Flash the key light brighter (used on heavy battle hits). */
   pulseKeyLight(intensity: number, durationMs = 120): void {
-    const base = 2.1;
+    const base = 1.5;
     this.keyLight.intensity = intensity;
     setTimeout(() => (this.keyLight.intensity = base), durationMs);
   }
@@ -155,12 +185,14 @@ export class Stage {
     this.tweens.update(scaledDt);
     for (const cb of this.frameCbs) cb(dt, scaledDt);
     if (!this.cameraLocked) this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   };
 
   private onResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.bloom.setSize(window.innerWidth, window.innerHeight);
   };
 }
