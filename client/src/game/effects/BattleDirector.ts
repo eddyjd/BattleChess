@@ -101,32 +101,73 @@ export class BattleDirector {
       attacker.position.copy(standoff);
     }
 
-    // --- the strike (sped up so the swing lands fast) ---
+    // --- Round 1: attacker opens; defender staggers but holds ---
     stage.timeScale = 0.75;
     playOnce(attacker, attacker.userData.attack, 0.06, 1.7);
     const impactT = 0.5;
     if (attacker.userData.caster) this.castProjectile(attacker, dPos, impactT);
     await tw.delay(impactT);
+    this.impactAt(dPos, attacker.userData.color, 0.8);
+    playOnce(defender, "Block_Hit", 0.05, 1.3);
+    this.knock(defender, dir, 0.22);
+    await tw.delay(0.22);
 
-    // --- impact ---
-    this.impactAt(dPos, attacker.userData.color);
+    // --- camera swings to the other shoulder for the counterattack ---
+    const cineTarget2 = this.focus
+      .clone()
+      .add(side.clone().multiplyScalar(-3.2))
+      .add(dir.clone().multiplyScalar(-2.0))
+      .add(new THREE.Vector3(0, 1.8, 0));
+    const swingFrom = this.cineBase.clone();
+    void tw.to({
+      duration: 0.45,
+      easing: Easings.cubicInOut,
+      onUpdate: (t) => this.cineBase.lerpVectors(swingFrom, cineTarget2, t),
+    });
+
+    // --- Round 2: the doomed defender fights back; attacker shrugs it off ---
+    playOnce(defender, defender.userData.attack, 0.06, 1.6);
+    if (defender.userData.caster) this.castProjectile(defender, attacker.position.clone(), 0.45);
+    await tw.delay(0.45);
+    playOnce(attacker, "Block_Hit", 0.05, 1.4);
+    this.fx.burst(attacker.position.clone().add(new THREE.Vector3(0, 0.8, 0)), {
+      count: 14,
+      color: 0xffffff,
+      speed: 5,
+      spread: 0.7,
+      size: 0.1,
+      lifetime: 0.4,
+    });
+    this.shake(0.25);
+    await tw.delay(0.3);
+
+    // --- Killing blow: heavy slow-mo, a different swing, and it's over ---
+    stage.timeScale = 0.45;
+    const finisher =
+      !attacker.userData.caster && attacker.userData.clips["1H_Melee_Attack_Chop"]
+        ? "1H_Melee_Attack_Chop"
+        : attacker.userData.attack;
+    playOnce(attacker, finisher, 0.06, 1.6);
+    if (attacker.userData.caster) this.castProjectile(attacker, dPos, 0.5);
+    await tw.delay(0.5);
+    this.impactAt(dPos, attacker.userData.color, 1.5);
     playOnce(defender, "Hit_A", 0.05);
-    this.knock(defender, dir, 0.35);
-    await tw.delay(0.14);
+    this.knock(defender, dir, 0.5);
+    await tw.delay(0.16);
 
     // --- death ---
     stage.timeScale = 0.85;
     playOnce(defender, defender.userData.death, 0.1, 1.2);
     this.fx.burst(dPos.clone().add(new THREE.Vector3(0, 0.5, 0)), {
-      count: 30,
+      count: 34,
       color: defender.userData.color === "w" ? 0xb08050 : 0xcfc8b0,
-      speed: 4,
+      speed: 4.5,
       spread: 1,
       size: 0.14,
       lifetime: 1,
       gravity: 9,
     });
-    await tw.delay(0.3);
+    await tw.delay(0.35);
     await this.fadeOut(defender, 0.5);
 
     // --- victor advances onto the square ---
@@ -144,13 +185,14 @@ export class BattleDirector {
     await tw.delay(0.3);
     playLoop(attacker, "Idle", 0.2);
 
-    // --- restore camera ---
+    // --- restore camera (from wherever the swing left it) ---
     stage.timeScale = 1;
+    const restoreFrom = this.cineBase.clone();
     await tw.to({
       duration: 0.35,
       easing: Easings.cubicInOut,
       onUpdate: (t) => {
-        this.cineBase.lerpVectors(cineTarget, prevPos, t);
+        this.cineBase.lerpVectors(restoreFrom, prevPos, t);
         cam.fov = THREE.MathUtils.lerp(44, prevFov, t);
         cam.updateProjectionMatrix();
       },
@@ -164,20 +206,20 @@ export class BattleDirector {
     this.setCinematic(false);
   }
 
-  private impactAt(at: THREE.Vector3, attackerColor: "w" | "b"): void {
+  private impactAt(at: THREE.Vector3, attackerColor: "w" | "b", power = 1): void {
     const chest = at.clone().add(new THREE.Vector3(0, 0.85, 0));
     this.fx.burst(chest, {
-      count: 26,
+      count: Math.round(26 * power),
       color: attackerColor === "w" ? 0xffce5c : 0x9b6bff,
-      speed: 7,
+      speed: 7 * power,
       spread: 1,
       size: 0.14,
       lifetime: 0.6,
     });
-    this.fx.burst(chest, { count: 12, color: 0xffffff, speed: 9, spread: 0.6, size: 0.09, lifetime: 0.35 });
-    this.fx.shockwave(at, { color: 0xffe6a0, maxRadius: 2.2, lifetime: 0.5 });
-    this.shake(0.5);
-    this.stage.pulseKeyLight(6, 110);
+    this.fx.burst(chest, { count: Math.round(12 * power), color: 0xffffff, speed: 9 * power, spread: 0.6, size: 0.09, lifetime: 0.35 });
+    this.fx.shockwave(at, { color: 0xffe6a0, maxRadius: 1.6 + power, lifetime: 0.5 });
+    this.shake(0.35 + power * 0.25);
+    this.stage.pulseKeyLight(4 + power * 3, 110);
   }
 
   private knock(defender: PieceObject, dir: THREE.Vector3, amount: number): void {

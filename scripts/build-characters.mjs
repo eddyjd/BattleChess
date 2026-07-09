@@ -30,8 +30,11 @@ const KEEP = new Set([
   "Walking_A",
   "Running_A",
   "1H_Melee_Attack_Slice_Diagonal", // melee swing
+  "1H_Melee_Attack_Stab", // melee variety
+  "1H_Melee_Attack_Chop", // melee variety / finisher
   "2H_Melee_Attack_Spin", // heavy hitter (rook/barbarian)
   "Spellcast_Shoot", // caster attack (mage/bishop/queen)
+  "Block_Hit", // staggering block during the exchange
   "Hit_A",
   "Death_A",
   "Death_C_Skeletons", // skeletons crumble to bones
