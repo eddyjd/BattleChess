@@ -40,14 +40,20 @@ await shot(page, "board");
 const move = async (f, t) => {
   await page.evaluate((f, t) => window.__bc.controller.testMove(f, t), f, t);
 };
+// Long-range caster capture — the hardest case to frame: the queen must
+// march from h5 to f7 and duel toe-to-toe.
 await move("e2", "e4");
 await sleep(400);
-await move("d7", "d5");
+await move("e7", "e5");
 await sleep(400);
-// e4 x d5 -> capture battle (fire and forget, screenshot through it)
-await page.evaluate((f, t) => { window.__bc.controller.testMove(f, t); }, "e4", "d5");
-for (let i = 1; i <= 6; i++) {
-  await sleep(1100);
+await move("d1", "h5");
+await sleep(700);
+await move("b8", "c6");
+await sleep(400);
+// Qh5 x f7 -> capture battle (fire and forget, screenshot through it)
+await page.evaluate((f, t) => { window.__bc.controller.testMove(f, t); }, "h5", "f7");
+for (let i = 1; i <= 7; i++) {
+  await sleep(1000);
   await shot(page, `battle${i}`);
 }
 await sleep(1500);

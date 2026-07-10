@@ -56,8 +56,18 @@ export class BattleDirector {
     const dir = dPos.clone().sub(aStart).setY(0).normalize();
     const faceA = Math.atan2(dir.x, dir.z);
     const side = new THREE.Vector3().crossVectors(dir, UP).normalize();
-    // Aim between the two fighters, a bit above the ground, so both are framed.
-    this.focus.copy(dPos).addScaledVector(dir, -0.5).add(new THREE.Vector3(0, 0.85, 0));
+
+    // EVERY attacker closes the distance, Battle Chess style — even casters
+    // march up and duel toe-to-toe (they stop a step further out to cast).
+    // The camera frames the DUEL midpoint so both fighters stay in shot.
+    const standoff = dPos.clone().addScaledVector(dir, attacker.userData.caster ? -1.5 : -0.95);
+    const duelMid = standoff.clone().lerp(dPos, 0.5);
+    this.focus.copy(duelMid).add(new THREE.Vector3(0, 0.8, 0));
+
+    // Film from the side of the duel that faces AWAY from the board centre —
+    // fewer bystander pieces there to block the shot on a crowded rank.
+    const outward = duelMid.clone().setY(0);
+    if (side.dot(outward) < 0) side.negate();
 
     // --- cinematic camera ---
     const prevPos = cam.position.clone();
@@ -68,18 +78,31 @@ export class BattleDirector {
     this.setCinematic(true);
     const cineTarget = this.focus
       .clone()
-      .add(side.clone().multiplyScalar(3.4))
-      .add(dir.clone().multiplyScalar(-2.6))
-      .add(new THREE.Vector3(0, 2.0, 0));
+      .add(side.clone().multiplyScalar(3.6))
+      .add(dir.clone().multiplyScalar(-1.2))
+      .add(new THREE.Vector3(0, 2.2, 0));
     this.cineBase.copy(prevPos);
 
     attacker.rotation.y = faceA;
     defender.rotation.y = faceA + Math.PI;
     playLoop(defender, "Idle", 0.1);
 
-    stage.timeScale = 0.95;
+    // The attacker marches in WHILE the camera dives — it arrives on screen
+    // just as the shot settles, so the exchange always shows both fighters.
+    const marchDist = aStart.distanceTo(standoff);
+    const marchDur = THREE.MathUtils.clamp(0.22 + marchDist * 0.09, 0.3, 0.85);
+    stage.timeScale = 1;
+    playLoop(attacker, "Running_A", 0.1);
+    const marching = tw.to({
+      duration: marchDur,
+      easing: Easings.quadInOut,
+      onUpdate: (t) => {
+        attacker.position.lerpVectors(aStart, standoff, t);
+        attacker.position.y = 0;
+      },
+    });
     await tw.to({
-      duration: 0.32,
+      duration: Math.min(0.38, marchDur),
       easing: Easings.cubicInOut,
       onUpdate: (t) => {
         this.cineBase.lerpVectors(prevPos, cineTarget, t);
@@ -87,19 +110,8 @@ export class BattleDirector {
         cam.updateProjectionMatrix();
       },
     });
-
-    // --- melee close the distance ---
-    const standoff = dPos.clone().addScaledVector(dir, -0.95);
-    if (!attacker.userData.caster) {
-      stage.timeScale = 1;
-      playLoop(attacker, "Running_A", 0.1);
-      await tw.to({
-        duration: 0.26,
-        easing: Easings.quadOut,
-        onUpdate: (t) => attacker.position.lerpVectors(aStart, standoff, t),
-      });
-      attacker.position.copy(standoff);
-    }
+    await marching;
+    attacker.position.copy(standoff);
 
     // --- Round 1: attacker opens; defender staggers but holds ---
     stage.timeScale = 0.75;
@@ -117,7 +129,7 @@ export class BattleDirector {
       .clone()
       .add(side.clone().multiplyScalar(-3.2))
       .add(dir.clone().multiplyScalar(-2.0))
-      .add(new THREE.Vector3(0, 1.8, 0));
+      .add(new THREE.Vector3(0, 2.1, 0));
     const swingFrom = this.cineBase.clone();
     void tw.to({
       duration: 0.45,
