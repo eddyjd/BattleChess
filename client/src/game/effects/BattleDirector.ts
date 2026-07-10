@@ -6,6 +6,18 @@ import { ParticleFX } from "./Particles";
 
 const UP = new THREE.Vector3(0, 1, 0);
 
+/** Everything a finisher needs to stage the killing blow. */
+interface FightCtx {
+  attacker: PieceObject;
+  defender: PieceObject;
+  /** Unit vector from attacker toward defender (horizontal). */
+  dir: THREE.Vector3;
+  /** Unit vector perpendicular to the duel axis (camera side). */
+  side: THREE.Vector3;
+  /** The defender's square (world position). */
+  dPos: THREE.Vector3;
+}
+
 /**
  * Battle Chess-style capture: the camera dives into a slow-motion close-up,
  * the attacker closes in and strikes with its real attack animation, the
@@ -153,24 +165,12 @@ export class BattleDirector {
     this.shake(0.25);
     await tw.delay(0.3);
 
-    // --- Killing blow: heavy slow-mo, a different swing, and it's over ---
-    stage.timeScale = 0.45;
-    const finisher =
-      !attacker.userData.caster && attacker.userData.clips["1H_Melee_Attack_Chop"]
-        ? "1H_Melee_Attack_Chop"
-        : attacker.userData.attack;
-    playOnce(attacker, finisher, 0.06, 1.6);
-    if (attacker.userData.caster) this.castProjectile(attacker, dPos, 0.5);
-    await tw.delay(0.5);
-    this.impactAt(dPos, attacker.userData.color, 1.5);
-    playOnce(defender, "Hit_A", 0.05);
-    this.knock(defender, dir, 0.5);
-    await tw.delay(0.16);
+    // --- Killing blow: each piece type has its signature finisher ---
+    await this.finish({ attacker, defender, dir, side, dPos });
 
-    // --- death ---
+    // --- remains ---
     stage.timeScale = 0.85;
-    playOnce(defender, defender.userData.death, 0.1, 1.2);
-    this.fx.burst(dPos.clone().add(new THREE.Vector3(0, 0.5, 0)), {
+    this.fx.burst(defender.position.clone().add(new THREE.Vector3(0, 0.5, 0)), {
       count: 34,
       color: defender.userData.color === "w" ? 0xb08050 : 0xcfc8b0,
       speed: 4.5,
@@ -179,7 +179,7 @@ export class BattleDirector {
       lifetime: 1,
       gravity: 9,
     });
-    await tw.delay(0.35);
+    await tw.delay(0.25);
     await this.fadeOut(defender, 0.5);
 
     // --- victor advances onto the square ---
@@ -216,6 +216,296 @@ export class BattleDirector {
     stage.controls.target.copy(prevTarget);
     stage.cameraLocked = false;
     this.setCinematic(false);
+  }
+
+  /* ---------------- signature finishers, one per piece type ---------------- */
+
+  private finish(ctx: FightCtx): Promise<void> {
+    switch (ctx.attacker.userData.type) {
+      case "n": return this.finishKnight(ctx);
+      case "b": return this.finishBishop(ctx);
+      case "r": return this.finishRook(ctx);
+      case "q": return this.finishQueen(ctx);
+      case "k": return this.finishKing(ctx);
+      default: return this.finishPawn(ctx);
+    }
+  }
+
+  /** PAWN — scrappy three-hit flurry; the last stab sends the loser tumbling. */
+  private async finishPawn(ctx: FightCtx): Promise<void> {
+    const { attacker, defender, dir, dPos } = ctx;
+    const tw = this.stage.tweens;
+    this.stage.timeScale = 0.6;
+    const combo = ["1H_Melee_Attack_Stab", "1H_Melee_Attack_Slice_Diagonal", "1H_Melee_Attack_Chop"];
+    for (let i = 0; i < combo.length; i++) {
+      playOnce(attacker, combo[i], 0.05, 2.2);
+      await tw.delay(0.26);
+      this.impactAt(dPos, attacker.userData.color, 0.6 + i * 0.25);
+      playOnce(defender, i < 2 ? "Block_Hit" : "Hit_A", 0.05, 1.5);
+      this.knock(defender, dir, 0.15 + i * 0.1);
+      await tw.delay(0.08);
+    }
+    this.stage.timeScale = 0.45;
+    await this.launch(defender, dir, 1.4, 1.0, 0.5, true);
+    playOnce(defender, defender.userData.death, 0.05, 1.4);
+    await tw.delay(0.45);
+  }
+
+  /** KNIGHT — leaps skyward and crushes the defender with a ground pound. */
+  private async finishKnight(ctx: FightCtx): Promise<void> {
+    const { attacker, defender, dir, dPos } = ctx;
+    const tw = this.stage.tweens;
+    this.stage.timeScale = 0.6;
+    playOnce(attacker, "2H_Melee_Attack_Spin", 0.06, 1.3);
+    const from = attacker.position.clone();
+    const landing = dPos.clone().addScaledVector(dir, -0.35);
+    await tw.to({
+      duration: 0.5,
+      easing: Easings.quadInOut,
+      onUpdate: (t) => {
+        attacker.position.lerpVectors(from, landing, t);
+        attacker.position.y = Math.sin(t * Math.PI) * 2.4;
+      },
+    });
+    attacker.position.y = 0;
+    this.stage.timeScale = 0.3;
+    this.impactAt(dPos, attacker.userData.color, 1.8);
+    this.fx.shockwave(dPos, { color: 0xffffff, maxRadius: 3.6, lifetime: 0.6 });
+    this.shake(1.2);
+    // The defender is squashed flat by the impact before collapsing.
+    playOnce(defender, "Hit_A", 0.03);
+    const squashFrom = defender.scale.y;
+    await tw.to({
+      duration: 0.18,
+      easing: Easings.quadOut,
+      onUpdate: (t) => {
+        defender.scale.y = squashFrom * (1 - 0.45 * Math.sin(t * Math.PI));
+      },
+    });
+    playOnce(defender, defender.userData.death, 0.05, 1.4);
+    await tw.delay(0.5);
+  }
+
+  /** BISHOP — calls down a pillar of holy light that lifts, then drops, the victim. */
+  private async finishBishop(ctx: FightCtx): Promise<void> {
+    const { attacker, defender, dPos } = ctx;
+    const tw = this.stage.tweens;
+    this.stage.timeScale = 0.5;
+    playOnce(attacker, "Spellcast_Shoot", 0.06, 1.2);
+    await tw.delay(0.35);
+    const beamColor = attacker.userData.color === "w" ? 0xfff2b0 : 0xc490ff;
+    this.beam(dPos, beamColor, 1.4);
+    this.stage.pulseKeyLight(8, 400);
+    // Victim levitates, helpless, spinning slowly inside the beam.
+    const baseY = defender.position.y;
+    playOnce(defender, "Hit_A", 0.05, 0.7);
+    await tw.to({
+      duration: 0.7,
+      easing: Easings.quadInOut,
+      onUpdate: (t) => {
+        defender.position.y = baseY + t * 1.3;
+        defender.rotation.y += 0.12;
+      },
+    });
+    this.fx.burst(defender.position.clone(), {
+      count: 30, color: beamColor, speed: 5, spread: 0.7, size: 0.13, lifetime: 0.7, upBias: 0.3,
+    });
+    // The light releases — the victim drops like a stone.
+    this.stage.timeScale = 0.8;
+    await tw.to({
+      duration: 0.22,
+      easing: Easings.quadIn,
+      onUpdate: (t) => {
+        defender.position.y = baseY + 1.3 * (1 - t);
+      },
+    });
+    defender.position.y = baseY;
+    this.impactAt(defender.position.clone(), attacker.userData.color, 1.2);
+    playOnce(defender, defender.userData.death, 0.05, 1.3);
+    await tw.delay(0.5);
+  }
+
+  /** ROOK — a siege blow that launches the defender skyward to crash back down. */
+  private async finishRook(ctx: FightCtx): Promise<void> {
+    const { attacker, defender, dPos } = ctx;
+    const tw = this.stage.tweens;
+    this.stage.timeScale = 0.55;
+    playOnce(attacker, "2H_Melee_Attack_Spin", 0.06, 1.5);
+    await tw.delay(0.4);
+    this.impactAt(dPos, attacker.userData.color, 1.3);
+    playOnce(defender, "Hit_A", 0.03);
+    // Straight up — the camera tilts to follow, then the crash.
+    const baseY = defender.position.y;
+    const focusY = this.focus.y;
+    this.stage.timeScale = 0.6;
+    await tw.to({
+      duration: 0.55,
+      easing: Easings.quadOut,
+      onUpdate: (t) => {
+        defender.position.y = baseY + t * 3.2;
+        defender.rotation.z = t * 1.8;
+        this.focus.y = focusY + t * 1.4;
+      },
+    });
+    this.stage.timeScale = 0.9;
+    await tw.to({
+      duration: 0.3,
+      easing: Easings.quadIn,
+      onUpdate: (t) => {
+        defender.position.y = baseY + 3.2 * (1 - t);
+        this.focus.y = focusY + 1.4 * (1 - t);
+      },
+    });
+    defender.position.y = baseY;
+    defender.rotation.z = 0;
+    this.focus.y = focusY;
+    this.impactAt(dPos, attacker.userData.color, 1.7);
+    this.fx.shockwave(dPos, { color: 0xff9a4d, maxRadius: 3.8, lifetime: 0.7 });
+    this.shake(1.3);
+    playOnce(defender, defender.userData.death, 0.03, 1.5);
+    await tw.delay(0.45);
+  }
+
+  /** QUEEN — a ring of arcane orbs converges and detonates all at once. */
+  private async finishQueen(ctx: FightCtx): Promise<void> {
+    const { attacker, defender, dPos } = ctx;
+    const tw = this.stage.tweens;
+    this.stage.timeScale = 0.5;
+    playOnce(attacker, "Spellcast_Shoot", 0.06, 1.1);
+    const orbColor = attacker.userData.color === "w" ? 0x66ccff : 0xb060ff;
+    const chest = dPos.clone().add(new THREE.Vector3(0, 0.85, 0));
+    // Conjure a ring of orbs circling the victim...
+    const orbs: THREE.Mesh[] = [];
+    const N = 6;
+    for (let i = 0; i < N; i++) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x000000, emissive: new THREE.Color(orbColor), emissiveIntensity: 6,
+      });
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 10), mat);
+      this.stage.scene.add(orb);
+      orbs.push(orb);
+    }
+    const R = 1.15;
+    await tw.to({
+      duration: 0.55,
+      easing: Easings.quadInOut,
+      onUpdate: (t) => {
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2 + t * 5;
+          orbs[i].position.set(
+            chest.x + Math.cos(a) * R,
+            chest.y + Math.sin(t * Math.PI * 2 + i) * 0.25,
+            chest.z + Math.sin(a) * R,
+          );
+        }
+      },
+    });
+    playOnce(defender, "Hit_A", 0.05, 0.8);
+    // ...then they converge and detonate as one.
+    this.stage.timeScale = 0.35;
+    const starts = orbs.map((o) => o.position.clone());
+    await tw.to({
+      duration: 0.28,
+      easing: Easings.quadIn,
+      onUpdate: (t) => {
+        for (let i = 0; i < N; i++) orbs[i].position.lerpVectors(starts[i], chest, t);
+      },
+    });
+    for (const o of orbs) {
+      this.stage.scene.remove(o);
+      o.geometry.dispose();
+      (o.material as THREE.Material).dispose();
+    }
+    this.impactAt(dPos, attacker.userData.color, 1.9);
+    this.fx.burst(chest, { count: 50, color: orbColor, speed: 10, spread: 1, size: 0.16, lifetime: 0.8 });
+    this.fx.shockwave(dPos, { color: orbColor, maxRadius: 3.4, lifetime: 0.6 });
+    this.stage.pulseKeyLight(10, 160);
+    this.shake(1.2);
+    playOnce(defender, defender.userData.death, 0.03, 1.5);
+    await tw.delay(0.5);
+  }
+
+  /** KING — a near-frozen moment, then one decisive blow and a blinding flash. */
+  private async finishKing(ctx: FightCtx): Promise<void> {
+    const { attacker, defender, dir, dPos } = ctx;
+    const tw = this.stage.tweens;
+    // Time all but stops for the execution.
+    this.stage.timeScale = 0.18;
+    playOnce(attacker, "1H_Melee_Attack_Chop", 0.04, 1.2);
+    await tw.delay(0.28);
+    this.stage.timeScale = 0.9;
+    await tw.delay(0.06);
+    // The blow lands: golden thunderclap.
+    this.impactAt(dPos, attacker.userData.color, 2.0);
+    this.fx.shockwave(dPos, { color: 0xffe27a, maxRadius: 4.5, lifetime: 0.8 });
+    this.fx.shockwave(dPos, { color: 0xffffff, maxRadius: 2.8, lifetime: 0.5 });
+    this.fx.burst(dPos.clone().add(new THREE.Vector3(0, 0.9, 0)), {
+      count: 46, color: 0xffe27a, speed: 11, spread: 1, size: 0.15, lifetime: 0.8,
+    });
+    this.stage.pulseKeyLight(13, 200);
+    this.shake(1.5);
+    this.knock(defender, dir, 0.6);
+    this.stage.timeScale = 0.5;
+    playOnce(defender, defender.userData.death, 0.03, 1.2);
+    await tw.delay(0.55);
+  }
+
+  /* ---------------------------- FX helpers ---------------------------- */
+
+  /** Arc a piece backward through the air (tumbling if asked). */
+  private launch(
+    piece: PieceObject,
+    dir: THREE.Vector3,
+    dist: number,
+    height: number,
+    dur: number,
+    tumble = false,
+  ): Promise<void> {
+    const start = piece.position.clone();
+    const end = start.clone().addScaledVector(dir, dist);
+    return this.stage.tweens
+      .to({
+        duration: dur,
+        easing: Easings.linear,
+        onUpdate: (t) => {
+          piece.position.lerpVectors(start, end, t);
+          piece.position.y = start.y + Math.sin(t * Math.PI) * height;
+          if (tumble) piece.rotation.x = -t * Math.PI * 0.6;
+        },
+      })
+      .then(() => {
+        piece.position.y = start.y;
+        piece.rotation.x = 0;
+      });
+  }
+
+  /** A pillar of light over a square that swells and fades. */
+  private beam(at: THREE.Vector3, color: number, life: number): void {
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 9, 24, 1, true), mat);
+    pillar.position.copy(at);
+    pillar.position.y = 4.5;
+    this.stage.scene.add(pillar);
+    void this.stage.tweens.to({
+      duration: life,
+      easing: Easings.quadInOut,
+      onUpdate: (t) => {
+        mat.opacity = 0.75 * Math.sin(t * Math.PI);
+        pillar.rotation.y += 0.05;
+      },
+      onComplete: () => {
+        this.stage.scene.remove(pillar);
+        pillar.geometry.dispose();
+        mat.dispose();
+      },
+    });
   }
 
   private impactAt(at: THREE.Vector3, attackerColor: "w" | "b", power = 1): void {
