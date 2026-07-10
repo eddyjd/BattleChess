@@ -8,6 +8,7 @@ import { AIController, type Difficulty } from "../ai/AIController";
 import type { NetClient } from "../net/NetClient";
 import type { PieceColor, PieceType } from "./Characters";
 import type { Color, GameOverReason, ServerMessage } from "../../../shared/protocol";
+import { Sfx } from "../audio/Sfx";
 
 export type Mode = "local" | "ai" | "online";
 
@@ -203,6 +204,7 @@ export class GameController {
   }
 
   private select(square: string): void {
+    Sfx.tick();
     this.selected = square;
     this.legalForSelected = this.chess.moves({ square: square as never, verbose: true }) as Move[];
     this.board.clearSelection();
@@ -292,6 +294,7 @@ export class GameController {
 
     this.board.setLastMove(from, to);
     this.refreshCheck();
+    if (this.chess.inCheck() && !this.chess.isGameOver()) Sfx.sting();
     this.busy = false;
     this.afterMove(true);
   }

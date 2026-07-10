@@ -3,6 +3,7 @@ import type { Stage } from "../../scene/Stage";
 import { playLoop, playOnce, type PieceObject } from "../Characters";
 import { Easings } from "../../util/tween";
 import { ParticleFX } from "./Particles";
+import { Sfx } from "../../audio/Sfx";
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -104,6 +105,7 @@ export class BattleDirector {
     const marchDist = aStart.distanceTo(standoff);
     const marchDur = THREE.MathUtils.clamp(0.22 + marchDist * 0.09, 0.3, 0.85);
     stage.timeScale = 1;
+    Sfx.march();
     playLoop(attacker, "Running_A", 0.1);
     const marching = tw.to({
       duration: marchDur,
@@ -170,6 +172,8 @@ export class BattleDirector {
 
     // --- remains ---
     stage.timeScale = 0.85;
+    if (defender.userData.death === "Death_C_Skeletons") Sfx.bones();
+    else Sfx.hit(0.5, 0.7);
     this.fx.burst(defender.position.clone().add(new THREE.Vector3(0, 0.5, 0)), {
       count: 34,
       color: defender.userData.color === "w" ? 0xb08050 : 0xcfc8b0,
@@ -193,6 +197,7 @@ export class BattleDirector {
     });
     attacker.position.copy(dPos);
     attacker.rotation.y = attacker.userData.color === "w" ? Math.PI : 0;
+    Sfx.flourish();
     playOnce(attacker, "Cheer", 0.12);
     await tw.delay(0.3);
     playLoop(attacker, "Idle", 0.2);
@@ -508,7 +513,15 @@ export class BattleDirector {
     });
   }
 
+  /** Pitch factor for battle sounds — deeper while time is slowed. */
+  private get sfxRate(): number {
+    return 0.6 + 0.4 * this.stage.timeScale;
+  }
+
   private impactAt(at: THREE.Vector3, attackerColor: "w" | "b", power = 1): void {
+    Sfx.swoosh(this.sfxRate);
+    Sfx.hit(power, this.sfxRate);
+    if (power >= 1.4) Sfx.boom(power * 0.7, this.sfxRate);
     const chest = at.clone().add(new THREE.Vector3(0, 0.85, 0));
     this.fx.burst(chest, {
       count: Math.round(26 * power),
@@ -538,6 +551,7 @@ export class BattleDirector {
   }
 
   private castProjectile(attacker: PieceObject, target: THREE.Vector3, travel: number): void {
+    Sfx.magic(this.sfxRate);
     const mat = new THREE.MeshStandardMaterial({
       color: 0x000000,
       emissive: new THREE.Color(attacker.userData.color === "w" ? 0x66ccff : 0xb060ff),

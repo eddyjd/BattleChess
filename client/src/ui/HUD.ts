@@ -1,5 +1,6 @@
 import { el, GLYPH } from "./dom";
 import { GameController, type GameView, type GameOverInfo } from "../game/GameController";
+import { Sfx } from "../audio/Sfx";
 
 export interface HUDCallbacks {
   onResign: () => void;
@@ -57,7 +58,18 @@ export class HUD {
     this.whiteCap = el("div", { class: "cap" });
     this.whiteTag = el("div", { class: "player-tag", id: "tag-white" }, [this.whiteName, this.whiteCap]);
 
+    const soundBtn = el("button", {
+      class: "icon-btn",
+      title: "Sound on/off",
+      onclick: () => {
+        Sfx.setEnabled(!Sfx.enabled);
+        soundBtn.textContent = Sfx.enabled ? "🔊" : "🔇";
+        if (Sfx.enabled) Sfx.tick();
+      },
+    }, [Sfx.enabled ? "🔊" : "🔇"]);
+
     const controls = el("div", { class: "controls" }, [
+      soundBtn,
       el("button", { class: "icon-btn", title: "Resign", onclick: () => this.callbacks.onResign() }, ["⚐"]),
       el("button", { class: "icon-btn", title: "Main menu", onclick: () => this.callbacks.onMenu() }, ["☰"]),
     ]);
@@ -138,6 +150,7 @@ export class HUD {
   }
 
   showGameOver(info: GameOverInfo): void {
+    Sfx.fanfare(info.youWin);
     const headline =
       info.youWin === true ? "Victory!" : info.youWin === false ? "Defeat" : GameController.describeReason(String(info.reason));
     const sub =

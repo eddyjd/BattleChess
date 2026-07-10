@@ -12,6 +12,7 @@ import {
 } from "./Characters";
 import { squareToWorld } from "./coords";
 import type { Stage } from "../scene/Stage";
+import { Sfx } from "../audio/Sfx";
 import { Easings } from "../util/tween";
 
 /**
@@ -76,6 +77,7 @@ export class PieceManager {
     piece.rotation.y = facing;
 
     const running = dist > 3.2;
+    Sfx.move();
     playLoop(piece, running ? "Running_A" : "Walking_A", 0.15);
     await this.stage.tweens.to({
       duration: Math.min(0.28 + dist * 0.12, 0.8),
